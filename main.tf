@@ -1,6 +1,6 @@
 
 module "labels" {
-  source      = "git@github.com:slovink/terraform-azure-labels.git"
+  source      = "git@github.com:slovink/terraform-azure-labels.git?ref=1.0.0"
   name        = var.name
   environment = var.environment
   managedby   = var.managedby

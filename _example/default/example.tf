@@ -12,7 +12,7 @@ locals {
 ## Resource group in which all resources will be deployed.
 ##-----------------------------------------------------------------------------
 module "resource_group" {
-  source      = "git::git@github.com:slovink/terraform-azure-resource-group.git"
+  source      = "git::git@github.com:slovink/terraform-azure-resource-group.git?ref=1.0.0"
   name        = local.name
   environment = local.environment
   location    = "North Europe"
@@ -23,7 +23,7 @@ module "resource_group" {
 ## Virtual Network for which subnet will be created for private endpoint and vnet link will be created in private dns zone.
 ##-----------------------------------------------------------------------------
 module "vnet" {
-  source              = "git::git@github.com:slovink/terraform-azure-vnet.git"
+  source              = "git::git@github.com:slovink/terraform-azure-vnet.git?ref=1.0.0"
   name                = local.name
   environment         = local.environment
   resource_group_name = module.resource_group.resource_group_name
@@ -36,7 +36,7 @@ module "vnet" {
 ## Subnet in which private endpoint will be created.
 ##-----------------------------------------------------------------------------
 module "subnet" {
-  source               = "git::git@github.com:slovink/terraform-azure-subnet.git"
+  source               = "git::git@github.com:slovink/terraform-azure-subnet.git?ref=1.0.0"
   name                 = local.name
   environment          = local.environment
   resource_group_name  = module.resource_group.resource_group_name
