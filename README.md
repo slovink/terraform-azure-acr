@@ -12,9 +12,9 @@
 <p align="center">
 
 <a href="https://www.terraform.io">
-  <img src="https://img.shields.io/badge/Terraform-v1.1.7-green" alt="Terraform">
+  <img src="https://img.shields.io/badge/Terraform-v1.7.4-green" alt="Terraform">
 </a>
-<a href="LICENSE.md">
+<a href="https://github.com/slovink/terraform-azure-acr/blob/master/LICENSE">
   <img src="https://img.shields.io/badge/License-APACHE-blue.svg" alt="Licence">
 </a>
 
@@ -42,10 +42,9 @@ This module has a few dependencies:
 Here is an example of how you can use this module in your inventory structure:
   ```hcl
 module "container-registry" {
-  source              = "../"
-  resource_group_name = module.resource_group.resource_group_name
-  location            = module.resource_group.resource_group_location
-
+  source                          = "https://github.com/slovink/terraform-azure-acr.git?ref=1.0.0"
+  resource_group_name             = module.resource_group.resource_group_name
+  location                        = module.resource_group.resource_group_location
   container_registry_config = {
     name                          = "containerregistrydemoproject01"
     admin_enabled                 = true
@@ -66,15 +65,66 @@ module "container-registry" {
   private_dns_name              = "privatelink.azurecr.io" # To be same for all ACR.
 
 }
-  ```
+
+ ```
+## With existing dns in diff rg
+Here is an example of how you can use this module in your inventory structure:
+  ```hcl
+module "acr" {
+  source              = "https://github.com/slovink/terraform-azure-acr.git?ref=1.0.0"
+  name                = local.name
+  environment         = local.environment
+  resource_group_name = module.resource_group.resource_group_name
+  location            = module.resource_group.resource_group_location
+  container_registry_config = {
+    name = "al86h" # Name of Container Registry
+    sku  = "Premium"
+  }
+
+  virtual_network_id = module.vnet.id
+  subnet_id          = [module.subnet.default_subnet_id]
+
+  existing_private_dns_zone                     = data.azurerm_private_dns_zone.existing.name # Name of private dns zone remain same for acr.
+  existing_private_dns_zone_id                  = data.azurerm_private_dns_zone.existing.id
+  existing_private_dns_zone_resource_group_name = data.azurerm_resource_group.existing.name
+}
+ ```
+## With existing dns in diff subs
+Here is an example of how you can use this module in your inventory structure:
+  ```hcl
+module "acr" {
+  source              = "https://github.com/slovink/terraform-azure-acr.git?ref=1.0.0"
+  name                = local.name # Name used for specifying tags and other resources naming.(like private endpoint, vnet-link etc)
+  environment         = local.environment
+  resource_group_name = module.resource_group.resource_group_name
+  location            = module.resource_group.resource_group_location
+  container_registry_config = {
+    name = "diffacr1234" # Name of Container Registry
+    sku  = "Premium"
+  }
+
+  virtual_network_id = module.vnet.id
+  subnet_id          = [module.subnet.default_subnet_id]
+
+
+  diff_sub                                      = true
+  alias_sub                                     = "xxxxxxxxxxxxxxxxxxxx"   # Subcription id in which dns zone is present.
+  existing_private_dns_zone                     = "privatelink.azurecr.io" # Name of private dns zone remain same for acr.
+  existing_private_dns_zone_id                  = "/subscriptions/08xxxxxxxxxxxxxxx9c0c/resourceGroups/app-test-resource-group/providers/Microsoft.Network/privateDnsZones/privatelink.azurecr.io"
+  existing_private_dns_zone_resource_group_name = "app-test-resource-group"
+}
+```
+
 ## License
 This project is licensed under the MIT License - see the [LICENSE](https://github.com/slovink/terraform-azure-acr/blob/krishan/LICENSE) file for details.
 
 
+## Examples
+For detailed examples on how to use this module, please refer to the [Examples](https://github.com/slovink/terraform-azure-acr/tree/dev/_example) directory within this repository.
 
 
 ## Feedback
-If you come accross a bug or have any feedback, please log it in our [issue tracker](https://github.com/slovink/terraform-azure-acr), or feel free to drop us an email at [devops@slovink.com](devops@slovink.com).
+If you come accross a bug or have any feedback, please log it in our [issue tracker](https://github.com/slovink/terraform-azure-acr), or feel free to drop us an email at [contact@slovink.com](contact@slovink.com).
 
 If you have found it worth your time, go ahead and give us a ★ on [our GitHub](https://github.com/slovink/terraform-azure-acr)!
 
@@ -83,7 +133,7 @@ If you have found it worth your time, go ahead and give us a ★ on [our GitHub]
 
 | Name | Version |
 |------|---------|
-| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >=1.6.6 |
+| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >=1.7.4 |
 | <a name="requirement_azurerm"></a> [azurerm](#requirement\_azurerm) | >=3.87.0 |
 
 ## Providers
