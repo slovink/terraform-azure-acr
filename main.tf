@@ -1,10 +1,6 @@
-#---------------------------------
-# Local declarations
-#---------------------------------
+
 module "labels" {
-
-  source  = "git::git@github.com:slovink/terraform-azure-labels.git"
-
+  source      = "git@github.com:slovink/terraform-azure-labels.git?ref=1.0.0"
   name        = var.name
   environment = var.environment
   managedby   = var.managedby
@@ -12,14 +8,14 @@ module "labels" {
   repository  = var.repository
 }
 
-
 resource "azurerm_container_registry" "main" {
-  name                          = format("%s", var.container_registry_config.name)
+  count                         = var.enable ? 1 : 0
+  name                          = var.container_registry_config.name
   resource_group_name           = var.resource_group_name
   location                      = var.location
-  admin_enabled                 = var.container_registry_config.admin_enabled
+  admin_enabled                 = var.admin_enabled
   sku                           = var.container_registry_config.sku
-  public_network_access_enabled = var.container_registry_config.public_network_access_enabled
+  public_network_access_enabled = var.public_network_access_enabled
   quarantine_policy_enabled     = var.container_registry_config.quarantine_policy_enabled
   zone_redundancy_enabled       = var.container_registry_config.zone_redundancy_enabled
   tags                          = module.labels.tags
@@ -32,6 +28,7 @@ resource "azurerm_container_registry" "main" {
       tags                    = merge({ "Name" = format("%s", "georep-${georeplications.value.location}") }, module.labels.tags, )
     }
   }
+
 
   dynamic "network_rule_set" {
     for_each = var.network_rule_set != null ? [var.network_rule_set] : []
@@ -91,7 +88,7 @@ resource "azurerm_container_registry_scope_map" "main" {
   for_each                = var.scope_map != null ? { for k, v in var.scope_map : k => v if v != null } : {}
   name                    = format("%s", each.key)
   resource_group_name     = var.resource_group_name
-  container_registry_name = azurerm_container_registry.main.name
+  container_registry_name = azurerm_container_registry.main[*].name
   actions                 = each.value["actions"]
 }
 
@@ -100,17 +97,17 @@ resource "azurerm_container_registry_token" "main" {
   for_each                = var.scope_map != null ? { for k, v in var.scope_map : k => v if v != null } : {}
   name                    = format("%s", "${each.key}-token")
   resource_group_name     = var.resource_group_name
-  container_registry_name = azurerm_container_registry.main.name
+  container_registry_name = azurerm_container_registry.main[*].name
   scope_map_id            = element([for k in azurerm_container_registry_scope_map.main : k.id], 0)
   enabled                 = true
 }
 
-resource "azurerm_container_registry_webhook" "main" {
+resource "azurerm_container_registry_webhook" "webhook" {
   for_each            = var.container_registry_webhooks != null ? { for k, v in var.container_registry_webhooks : k => v if v != null } : {}
   name                = format("%s", each.key)
   resource_group_name = var.resource_group_name
   location            = var.location
-  registry_name       = azurerm_container_registry.main.name
+  registry_name       = azurerm_container_registry.main[*].name
   service_uri         = each.value["service_uri"]
   actions             = each.value["actions"]
   status              = each.value["status"]
@@ -123,73 +120,84 @@ resource "azurerm_container_registry_webhook" "main" {
   }
 }
 
-
-resource "azurerm_private_endpoint" "pep1" {
-  count               = var.enable_private_endpoint ? 1 : 0
-  name                = format("%s-private-endpoint", var.container_registry_config.name)
+resource "azurerm_private_endpoint" "pep" {
+  count               = var.enable && var.enable_private_endpoint ? 1 : 0
+  name                = format("%s-%s-pep-acr", var.container_registry_config.name, module.labels.id)
   location            = var.location
   resource_group_name = var.resource_group_name
   subnet_id           = join("", var.subnet_id)
   private_dns_zone_group {
-    name                 = "container-registry-group"
-    private_dns_zone_ids = [azurerm_private_dns_zone.dnszone1.0.id]
+    name                 = format("%s-%s-acr", var.container_registry_config.name, "dns-zone-group")
+    private_dns_zone_ids = var.existing_private_dns_zone == null ? [azurerm_private_dns_zone.dnszone[0].id] : [var.existing_private_dns_zone_id]
   }
-
   private_service_connection {
-    name                           = "containerregistryprivatelink"
+    name                           = format("%s-%s-acr", var.container_registry_config.name, "private-link")
     is_manual_connection           = false
-    private_connection_resource_id = azurerm_container_registry.main.id
+    private_connection_resource_id = azurerm_container_registry.main[0].id
     subresource_names              = ["registry"]
   }
+  lifecycle {
+    ignore_changes = [
+      tags,
+    ]
+  }
 }
 
-resource "azurerm_private_dns_zone" "dnszone1" {
-  count               = var.existing_private_dns_zone == null && var.enable_private_endpoint ? 1 : 0
+provider "azurerm" {
+  alias = "peer"
+  features {}
+  subscription_id = var.alias_sub
+}
+
+locals {
+  valid_rg_name         = var.existing_private_dns_zone == null ? var.resource_group_name : var.existing_private_dns_zone_resource_group_name
+  private_dns_zone_name = var.existing_private_dns_zone == null ? join("", azurerm_private_dns_zone.dnszone[*].name) : var.existing_private_dns_zone
+}
+
+
+resource "azurerm_private_dns_zone" "dnszone" {
+  count               = var.enable && var.existing_private_dns_zone == null && var.enable_private_endpoint ? 1 : 0
   name                = var.private_dns_name
   resource_group_name = var.resource_group_name
-  tags                = merge({ "Name" = format("%s", "Azure-Container-Registry-Private-DNS-Zone") }, module.labels.tags, )
+  tags                = module.labels.tags
 }
 
-resource "azurerm_private_dns_zone_virtual_network_link" "vent-link1" {
-  count                 = var.existing_private_dns_zone == null && var.enable_private_endpoint ? 1 : 0
-  name                  = "vnet-private-zone-link"
-  resource_group_name   = var.resource_group_name
-  private_dns_zone_name = azurerm_private_dns_zone.dnszone1.0.name
+
+resource "azurerm_private_dns_zone_virtual_network_link" "vent-link-same-sub" {
+  count                 = var.enable && var.enable_private_endpoint && var.diff_sub == false && var.same_vnet == false ? 1 : 0
+  name                  = var.existing_private_dns_zone == null ? format("%s-pdz-vnet-link-acr", module.labels.id) : format("%s-pdz-vnet-link-acr-1", module.labels.id)
+  resource_group_name   = local.valid_rg_name
+  private_dns_zone_name = local.private_dns_zone_name
   virtual_network_id    = var.virtual_network_id
   registration_enabled  = var.private_dns_zone_vnet_link_registration_enabled
-  tags                  = merge({ "Name" = format("%s", "vnet-private-zone-link") }, module.labels.tags, )
+  tags                  = module.labels.tags
 }
 
-resource "azurerm_monitor_diagnostic_setting" "acr-diag" {
-  count                      = var.log_analytics_workspace_name != null || var.storage_account_name != null ? 1 : 0
-  name                       = lower("acr-${var.container_registry_config.name}-diag")
-  target_resource_id         = azurerm_container_registry.main.id
-  storage_account_id         = var.storage_account_name != null ? var.storage_account_id : null
-  log_analytics_workspace_id = var.log_analytics_workspace_id
+resource "azurerm_private_dns_zone_virtual_network_link" "vent-link-diff_sub" {
+  provider              = azurerm.peer
+  count                 = var.enable && var.enable_private_endpoint && var.diff_sub == true ? 1 : 0
+  name                  = var.existing_private_dns_zone == null ? format("%s-pdz-vnet-link-acr", module.labels.id) : format("%s-pdz-vnet-link-acr-1", module.labels.id)
+  resource_group_name   = local.valid_rg_name
+  private_dns_zone_name = local.private_dns_zone_name
+  virtual_network_id    = var.virtual_network_id
+  tags                  = module.labels.tags
+}
 
-  dynamic "log" {
-    for_each = var.acr_diag_logs
-    content {
-      category = log.value
-      enabled  = true
+resource "azurerm_private_dns_zone_virtual_network_link" "vent-link-multi-subs" {
+  provider              = azurerm.peer
+  count                 = var.multi_sub_vnet_link && var.existing_private_dns_zone != null ? 1 : 0
+  name                  = format("%s-pdz-vnet-link-acr-1", module.labels.id)
+  resource_group_name   = var.existing_private_dns_zone_resource_group_name
+  private_dns_zone_name = var.existing_private_dns_zone
+  virtual_network_id    = var.virtual_network_id
+  tags                  = module.labels.tags
+}
 
-      retention_policy {
-        enabled = false
-        days    = 0
-      }
-    }
-  }
-
-  metric {
-    category = "AllMetrics"
-
-    retention_policy {
-      enabled = false
-      days    = 0
-    }
-  }
-
-  lifecycle {
-    ignore_changes = [log, metric]
-  }
+resource "azurerm_private_dns_zone_virtual_network_link" "addon_vent_link" {
+  count                 = var.enable && var.addon_vent_link ? 1 : 0
+  name                  = format("%s-pdz-vnet-link-acr-addon", module.labels.id)
+  resource_group_name   = var.existing_private_dns_zone_resource_group_name
+  private_dns_zone_name = var.existing_private_dns_zone == null ? join("", azurerm_private_dns_zone.dnszone[*].name) : var.existing_private_dns_zone
+  virtual_network_id    = var.addon_virtual_network_id
+  tags                  = module.labels.tags
 }
